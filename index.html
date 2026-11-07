@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ASimulatedCPU</title>
+  <title>ASimulatedCPU - OS Edition</title>
   <style>
     * {
       box-sizing: border-box;
     }
 
     body {
-      background: #0f111a;
-      color: #e0e0e0;
+      background: #0b0d14;
+      color: #d1d5db;
       font-family: monospace;
       padding: 16px;
       margin: 0;
@@ -23,27 +23,27 @@
     }
 
     h1 {
-      margin: 8px 0 0 0;
+      margin: 0;
       color: #00ff9d;
-      font-size: 22px;
+      font-size: 20px;
       letter-spacing: 1px;
     }
 
     .panel {
-      background: #1a1d2b;
-      border: 1px solid #2e344d;
+      background: #141724;
+      border: 1px solid #23293f;
       border-radius: 8px;
       padding: 14px;
       width: 100%;
-      max-width: 480px;
+      max-width: 520px;
     }
 
     .status-row {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 8px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
       margin-bottom: 8px;
-      font-size: 13px;
+      font-size: 12px;
     }
 
     .val {
@@ -51,20 +51,51 @@
       font-weight: bold;
     }
 
+    /* Green phosphor CRT terminal screen */
+    .crt-monitor {
+      background: #040d08;
+      border: 2px solid #00ff9d44;
+      border-radius: 6px;
+      padding: 12px;
+      min-height: 110px;
+      color: #33ff88;
+      text-shadow: 0 0 6px rgba(0, 255, 120, 0.6);
+      font-size: 13px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-all;
+      box-shadow: inset 0 0 16px rgba(0, 255, 120, 0.08);
+      position: relative;
+    }
+
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      background: #33ff88;
+      vertical-align: text-bottom;
+      animation: blink 0.8s infinite;
+    }
+
+    @keyframes blink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+
     .ram-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 8px;
-      margin-top: 10px;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 4px;
+      margin-top: 8px;
     }
 
     .ram-cell {
-      background: #121420;
-      border: 1px solid #2b3046;
-      border-radius: 6px;
-      padding: 10px 4px;
+      background: #0d101a;
+      border: 1px solid #1f2538;
+      border-radius: 4px;
+      padding: 6px 2px;
       text-align: center;
-      font-size: 14px;
+      font-size: 11px;
       font-weight: bold;
     }
 
@@ -74,12 +105,9 @@
       color: #00ff9d;
     }
 
-    .ram-cell .addr {
-      font-size: 10px;
-      color: #70799c;
-      display: block;
-      margin-bottom: 4px;
-      font-weight: normal;
+    .ram-cell.io-mapped {
+      border-color: #ff5577;
+      color: #ff88a3;
     }
 
     .controls {
@@ -89,7 +117,7 @@
       margin-top: 14px;
     }
 
-    @media (min-width: 400px) {
+    @media (min-width: 440px) {
       .controls {
         flex-direction: row;
       }
@@ -97,15 +125,15 @@
 
     button {
       flex: 1;
-      padding: 12px 10px;
+      padding: 11px 8px;
       border: none;
       border-radius: 6px;
       background: #00ff9d;
-      color: #0d1117;
+      color: #080a0f;
       font-weight: bold;
       cursor: pointer;
       font-family: monospace;
-      font-size: 13px;
+      font-size: 12px;
     }
 
     button:hover {
@@ -113,86 +141,149 @@
     }
 
     button.secondary {
-      background: #2b3046;
-      color: #fff;
+      background: #252b40;
+      color: #e0e0e0;
     }
 
     button.secondary:hover {
-      background: #3c4361;
+      background: #363e5c;
     }
 
     #log {
-      height: 120px;
+      height: 90px;
       overflow-y: auto;
-      background: #10121a;
-      border: 1px solid #23283c;
+      background: #0a0c12;
+      border: 1px solid #1c2133;
       padding: 8px;
       border-radius: 4px;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.4;
-      color: #9aa3c4;
+      color: #7d87a8;
     }
   </style>
 </head>
 <body>
 
-  <h1>ASimulatedCPU</h1>
+  <h1>ASimulatedCPU // NanoOS</h1>
 
+  <!-- CRT Screen (Output Device) -->
+  <div class="panel">
+    <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">CRT TTY OUTPUT (MMIO: 0x3E):</div>
+    <div class="crt-monitor" id="screen"><span id="terminal-content"></span><span class="cursor"></span></div>
+  </div>
+
+  <!-- CPU State & Controls -->
   <div class="panel">
     <div class="status-row">
       <span>PC: <span id="reg-pc" class="val">0x00</span></span>
       <span>Reg A: <span id="reg-a" class="val">0x00</span></span>
       <span>Reg B: <span id="reg-b" class="val">0x00</span></span>
-      <span>Status: <span id="cpu-status" class="val">READY</span></span>
+    </div>
+    <div class="status-row">
+      <span>Cycles: <span id="cycle-count" class="val">0</span></span>
+      <span>Clock: <span id="clock-spd" class="val">10 Hz</span></span>
+      <span>State: <span id="cpu-status" class="val">READY</span></span>
     </div>
 
-    <div style="margin-top: 10px; font-size: 12px; color: #70799c;">RAM (16 BYTES):</div>
+    <div style="margin-top: 8px; font-size: 11px; color: #64748b;">RAM (64 BYTES, RED = MMIO):</div>
     <div class="ram-grid" id="ram-container"></div>
 
     <div class="controls">
-      <button id="btn-step">1 CLOCK STEP</button>
-      <button id="btn-run" class="secondary">RUN (2 HZ)</button>
-      <button id="btn-reset" class="secondary">RESET</button>
+      <button id="btn-step">STEP (1 CLK)</button>
+      <button id="btn-run" class="secondary">BOOT OS (RUN)</button>
+      <button id="btn-turbo" class="secondary">FAST (50 HZ)</button>
+      <button id="btn-reset" class="secondary">REBOOT</button>
     </div>
   </div>
 
   <div class="panel">
-    <div style="font-size: 12px; color: #70799c; margin-bottom: 6px;">CONSOLE / TRACE:</div>
+    <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">KERNEL DEBUG BUS:</div>
     <div id="log"></div>
   </div>
 
   <script>
+    // Instruction Set Architecture (ISA)
     const OP = {
-      HLT: 0x00,
-      LOAD_A: 0x01,
-      LOAD_B: 0x02,
-      ADD: 0x03,
-      SUB: 0x04,
-      JMP: 0x05
+      HLT:   0x00, // halt
+      LDA_I: 0x01, // LDA immediate -> regA = imm
+      LDB_I: 0x02, // LDB immediate -> regB = imm
+      LDA_M: 0x03, // LDA memory    -> regA = RAM[addr]
+      STA_M: 0x04, // STA memory    -> RAM[addr] = regA
+      ADD:   0x05, // regA = regA + regB
+      SUB:   0x06, // regA = regA - regB
+      JMP:   0x07, // PC = addr
+      JZ:    0x08, // Jump if Zero -> if (regA === 0) PC = addr
+      INT:   0x09  // Syscall / Kernel Interrupt (vector in regA)
     };
 
-    const INITIAL_ROM = [
-      OP.LOAD_A, 0x03,
-      OP.LOAD_B, 0x02,
-      OP.ADD,
-      OP.JMP, 0x04,
-      0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00
+    // Special Memory-Mapped I/O addresses in 64-byte address space
+    const MMIO_TTY_CHAR = 0x3E; // 62
+    const MMIO_SYS_FLAG = 0x3F; // 63
+
+    // NanoOS ROM Image
+    // Boots kernel, prints banner, executes program that sums 1..4, prints result
+    const BOOT_ROM = [
+      // 0x00: Bootloader entry -> jump to Kernel init at 0x08
+      OP.JMP, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // 0x08: Kernel Banner print loop (Syscall INT 0x01 = print null-terminated string at addr in B)
+      OP.LDA_I, 0x01,       // Syscall 1 = sys_print
+      OP.LDB_I, 0x28,       // Address of string banner (0x28 = 40)
+      OP.INT,               // Trigger kernel interrupt
+      
+      // 0x0D: Launch user shell program (calculates 1+2+3+4, prints "OK")
+      OP.LDA_I, 0x00,       // regA = accumulator (0)
+      OP.LDB_I, 0x01,       // regB = counter (1)
+      // 0x11: loop start
+      OP.ADD,               // regA += regB
+      OP.STA_M, 0x3D,       // save sum to scratchpad memory 0x3D
+      OP.LDA_M, 0x3D,       // reload
+      OP.LDB_I, 0x04,       // compare target
+      // 0x18: Print status dot '.' (ASCII 46) directly through MMIO
+      OP.LDA_I, 0x2E,
+      OP.STA_M, MMIO_TTY_CHAR,
+      OP.LDA_I, 0x02,       // Syscall 2 = sys_flush_char
+      OP.INT,
+
+      // 0x1F: Print "DONE" string at address 0x35
+      OP.LDA_I, 0x01,
+      OP.LDB_I, 0x35,
+      OP.INT,
+
+      // 0x23: OS Idle / Halt
+      OP.HLT, 0x00, 0x00, 0x00,
+
+      // 0x28 - 0x34: String data: "OS READY\n" (ASCII)
+      0x4F, 0x53, 0x20, 0x52, 0x45, 0x41, 0x44, 0x59, 0x0A, 0x00, 0x00, 0x00, 0x00,
+
+      // 0x35 - 0x3B: String data: "\nOK 10" (ASCII)
+      0x0A, 0x4F, 0x4B, 0x20, 0x31, 0x30, 0x00,
+
+      // 0x3C: Scratchpad
+      0x00, 0x00,
+      // 0x3E: MMIO Char Buffer, 0x3F: Kernel Flag
+      0x00, 0x00
     ];
 
-    let RAM = [...INITIAL_ROM];
+    let RAM = new Uint8Array(64);
+    RAM.set(BOOT_ROM);
+
     let PC = 0;
     let regA = 0;
     let regB = 0;
+    let zeroFlag = false;
+    let cycles = 0;
     let halted = false;
     let clockInterval = null;
+    let clockSpeedMs = 100; // 10 Hz
 
+    const terminalEl = document.getElementById("terminal-content");
     const ramContainer = document.getElementById("ram-container");
     const regPcEl = document.getElementById("reg-pc");
     const regAEl = document.getElementById("reg-a");
     const regBEl = document.getElementById("reg-b");
     const statusEl = document.getElementById("cpu-status");
+    const cyclesEl = document.getElementById("cycle-count");
     const logEl = document.getElementById("log");
 
     function log(msg) {
@@ -203,65 +294,115 @@
       regPcEl.innerText = "0x" + PC.toString(16).padStart(2, "0").toUpperCase();
       regAEl.innerText = regA;
       regBEl.innerText = regB;
+      cyclesEl.innerText = cycles;
       statusEl.innerText = halted ? "HALTED" : (clockInterval ? "RUNNING" : "PAUSED");
 
       ramContainer.innerHTML = "";
-      RAM.forEach((byte, idx) => {
+      for (let i = 0; i < 64; i++) {
         const cell = document.createElement("div");
-        cell.className = "ram-cell" + (idx === PC ? " active-pc" : "");
-        cell.innerHTML = `
-          <span class="addr">0x${idx.toString(16).padStart(2, "0").toUpperCase()}</span>
-          0x${byte.toString(16).padStart(2, "0").toUpperCase()}
-        `;
+        const isMMIO = (i >= MMIO_TTY_CHAR);
+        cell.className = "ram-cell" + (i === PC ? " active-pc" : "") + (isMMIO ? " io-mapped" : "");
+        cell.innerText = RAM[i].toString(16).padStart(2, "0").toUpperCase();
         ramContainer.appendChild(cell);
-      });
+      }
+    }
+
+    // Hardware Interrupt / Kernel handler
+    function triggerSyscall(syscallCode) {
+      switch(syscallCode) {
+        case 0x01: { // sys_print string from RAM pointer in regB
+          let ptr = regB;
+          let str = "";
+          while (ptr < 64 && RAM[ptr] !== 0x00) {
+            str += String.fromCharCode(RAM[ptr]);
+            ptr++;
+          }
+          terminalEl.textContent += str;
+          log(`[KERNEL SYSCALL] Print String from 0x${regB.toString(16)}: "${str.trim()}"`);
+          break;
+        }
+        case 0x02: { // sys_flush single MMIO character
+          const char = String.fromCharCode(RAM[MMIO_TTY_CHAR]);
+          terminalEl.textContent += char;
+          log(`[MMIO OUT] Emitted char: '${char}'`);
+          break;
+        }
+        default:
+          log(`[KERNEL] Unknown syscall 0x${syscallCode.toString(16)}`);
+      }
     }
 
     function step() {
       if (halted) return;
 
       const opcode = RAM[PC];
-      log(`Fetched Opcode 0x${opcode.toString(16).padStart(2, "0").toUpperCase()} at PC: 0x${PC.toString(16).padStart(2, "0")}`);
+      cycles++;
 
       switch (opcode) {
         case OP.HLT:
           halted = true;
-          log("Execution halted.");
+          log("CPU Halted by OS shutdown instruction.");
           if (clockInterval) clearInterval(clockInterval);
           break;
 
-        case OP.LOAD_A:
-          regA = RAM[(PC + 1) % 16];
-          log(`LOAD_A: Set register A to ${regA}`);
-          PC = (PC + 2) % 16;
+        case OP.LDA_I:
+          regA = RAM[(PC + 1) & 0x3F];
+          PC = (PC + 2) & 0x3F;
           break;
 
-        case OP.LOAD_B:
-          regB = RAM[(PC + 1) % 16];
-          log(`LOAD_B: Set register B to ${regB}`);
-          PC = (PC + 2) % 16;
+        case OP.LDB_I:
+          regB = RAM[(PC + 1) & 0x3F];
+          PC = (PC + 2) & 0x3F;
           break;
+
+        case OP.LDA_M: {
+          const addr = RAM[(PC + 1) & 0x3F];
+          regA = RAM[addr & 0x3F];
+          PC = (PC + 2) & 0x3F;
+          break;
+        }
+
+        case OP.STA_M: {
+          const addr = RAM[(PC + 1) & 0x3F];
+          RAM[addr & 0x3F] = regA;
+          PC = (PC + 2) & 0x3F;
+          break;
+        }
 
         case OP.ADD:
           regA = (regA + regB) & 0xFF;
-          log(`ADD: A is now ${regA}`);
-          PC = (PC + 1) % 16;
+          zeroFlag = (regA === 0);
+          PC = (PC + 1) & 0x3F;
           break;
 
         case OP.SUB:
           regA = (regA - regB) & 0xFF;
-          log(`SUB: A is now ${regA}`);
-          PC = (PC + 1) % 16;
+          zeroFlag = (regA === 0);
+          PC = (PC + 1) & 0x3F;
           break;
 
-        case OP.JMP:
-          const target = RAM[(PC + 1) % 16];
-          log(`JMP: Jumped to address 0x${target.toString(16).padStart(2, "0")}`);
-          PC = target % 16;
+        case OP.JMP: {
+          const target = RAM[(PC + 1) & 0x3F];
+          PC = target & 0x3F;
+          break;
+        }
+
+        case OP.JZ: {
+          if (zeroFlag) {
+            PC = RAM[(PC + 1) & 0x3F] & 0x3F;
+          } else {
+            PC = (PC + 2) & 0x3F;
+          }
+          break;
+        }
+
+        case OP.INT:
+          triggerSyscall(regA);
+          PC = (PC + 1) & 0x3F;
           break;
 
         default:
-          log(`Unknown opcode 0x${opcode.toString(16)}, halting.`);
+          log(`Illegal instruction 0x${opcode.toString(16)} at PC 0x${PC.toString(16)}! Kernel Panic.`);
           halted = true;
           if (clockInterval) clearInterval(clockInterval);
           break;
@@ -270,42 +411,55 @@
       renderUI();
     }
 
-    document.getElementById("btn-step").onclick = () => {
-      step();
-    };
+    function startClock(spd) {
+      if (clockInterval) clearInterval(clockInterval);
+      clockSpeedMs = spd;
+      document.getElementById("clock-spd").innerText = `${Math.round(1000 / spd)} Hz`;
+      clockInterval = setInterval(step, clockSpeedMs);
+      document.getElementById("btn-run").innerText = "PAUSE";
+      renderUI();
+    }
+
+    document.getElementById("btn-step").onclick = () => step();
 
     document.getElementById("btn-run").onclick = function() {
       if (clockInterval) {
         clearInterval(clockInterval);
         clockInterval = null;
-        this.innerText = "RUN (2 HZ)";
+        this.innerText = "RUN";
         renderUI();
       } else {
         if (halted) return;
-        this.innerText = "PAUSE";
-        clockInterval = setInterval(step, 500);
-        renderUI();
+        startClock(100); // 10Hz default
       }
+    };
+
+    document.getElementById("btn-turbo").onclick = function() {
+      if (halted) return;
+      startClock(20); // 50Hz turbo mode
     };
 
     document.getElementById("btn-reset").onclick = () => {
       if (clockInterval) {
         clearInterval(clockInterval);
         clockInterval = null;
-        document.getElementById("btn-run").innerText = "RUN (2 HZ)";
+        document.getElementById("btn-run").innerText = "BOOT OS (RUN)";
       }
-      RAM = [...INITIAL_ROM];
+      RAM = new Uint8Array(64);
+      RAM.set(BOOT_ROM);
       PC = 0;
       regA = 0;
       regB = 0;
+      cycles = 0;
       halted = false;
+      terminalEl.textContent = "";
       logEl.innerHTML = "";
-      log("CPU Reset.");
+      log("Hardware reset. NanoOS ROM loaded.");
       renderUI();
     };
 
     renderUI();
-    log("ASimulatedCPU initialized. Ready.");
+    log("NanoOS BIOS mapped to 0x00. Press BOOT to start.");
   </script>
 </body>
 </html>

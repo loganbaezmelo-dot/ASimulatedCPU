@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ASimulatedCPU</title>
+  <style>
+    body {
+      background: #0f111a;
+      color: #e0e0e0;
+      font-family: monospace;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      color: #00ff9d;
+      font-size: 24px;
+      letter-spacing: 1px;
+    }
+
+    .panel {
+      background: #1a1d2b;
+      border: 1px solid #2e344d;
+      border-radius: 8px;
+      padding: 16px;
+      width: 480px;
+      box-sizing: border-box;
+    }
+
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .val {
+      color: #ffcc00;
+      font-weight: bold;
+    }
+
+    .ram-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .ram-cell {
+      background: #121420;
+      border: 1px solid #2b3046;
+      border-radius: 4px;
+      padding: 8px;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .ram-cell.active-pc {
+      border-color: #00ff9d;
+      background: #00ff9d22;
+      color: #00ff9d;
+    }
+
+    .ram-cell .addr {
+      font-size: 10px;
+      color: #70799c;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    button {
+      flex: 1;
+      padding: 10px 14px;
+      border: none;
+      border-radius: 6px;
+      background: #00ff9d;
+      color: #0d1117;
+      font-weight: bold;
+      cursor: pointer;
+      font-family: monospace;
+    }
+
+    button:hover {
+      background: #00cc7d;
+    }
+
+    button.secondary {
+      background: #2b3046;
+      color: #fff;
+    }
+
+    button.secondary:hover {
+      background: #3c4361;
+    }
+
+    #log {
+      height: 90px;
+      overflow-y: auto;
+      background: #10121a;
+      border: 1px solid #23283c;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.4;
+      color: #9aa3c4;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>ASimulatedCPU</h1>
+
+  <div class="panel">
+    <div class="status-row">
+      <span>PC: <span id="reg-pc" class="val">0x00</span></span>
+      <span>Reg A: <span id="reg-a" class="val">0x00</span></span>
+      <span>Reg B: <span id="reg-b" class="val">0x00</span></span>
+      <span>Status: <span id="cpu-status" class="val">READY</span></span>
+    </div>
+
+    <div style="margin-top: 10px; font-size: 12px; color: #70799c;">RAM (16 BYTES):</div>
+    <div class="ram-grid" id="ram-container"></div>
+
+    <div class="controls">
+      <button id="btn-step">1 CLOCK STEP</button>
+      <button id="btn-run" class="secondary">RUN (2 HZ)</button>
+      <button id="btn-reset" class="secondary">RESET</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div style="font-size: 12px; color: #70799c; margin-bottom: 6px;">CONSOLE / TRACE:</div>
+    <div id="log"></div>
+  </div>
+
+  <script>
+    // Instruction set opcodes
+    const OP = {
+      HLT: 0x00,
+      LOAD_A: 0x01, // LOAD_A <val>
+      LOAD_B: 0x02, // LOAD_B <val>
+      ADD: 0x03,    // A = A + B
+      SUB: 0x04,    // A = A - B
+      JMP: 0x05     // JMP <addr>
+    };
+
+    // Program:
+    // Load 3 into A, Load 2 into B, Add B to A repeatedly until manual stop or loop
+    // [0x01, 0x03] -> LOAD_A 3
+    // [0x02, 0x02] -> LOAD_B 2
+    // [0x03]       -> ADD
+    // [0x05, 0x04] -> JMP to 0x04 (loops back to the ADD instruction)
+    const INITIAL_ROM = [
+      OP.LOAD_A, 0x03,
+      OP.LOAD_B, 0x02,
+      OP.ADD,
+      OP.JMP, 0x04,
+      0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00
+    ];
+
+    let RAM = [...INITIAL_ROM];
+    let PC = 0;
+    let regA = 0;
+    let regB = 0;
+    let halted = false;
+    let clockInterval = null;
+
+    const ramContainer = document.getElementById("ram-container");
+    const regPcEl = document.getElementById("reg-pc");
+    const regAEl = document.getElementById("reg-a");
+    const regBEl = document.getElementById("reg-b");
+    const statusEl = document.getElementById("cpu-status");
+    const logEl = document.getElementById("log");
+
+    function log(msg) {
+      logEl.innerHTML = `> ${msg}<br>` + logEl.innerHTML;
+    }
+
+    function renderUI() {
+      regPcEl.innerText = "0x" + PC.toString(16).padStart(2, "0").toUpperCase();
+      regAEl.innerText = regA;
+      regBEl.innerText = regB;
+      statusEl.innerText = halted ? "HALTED" : (clockInterval ? "RUNNING" : "PAUSED");
+
+      ramContainer.innerHTML = "";
+      RAM.forEach((byte, idx) => {
+        const cell = document.createElement("div");
+        cell.className = "ram-cell" + (idx === PC ? " active-pc" : "");
+        cell.innerHTML = `
+          <span class="addr">0x${idx.toString(16).padStart(2, "0").toUpperCase()}</span>
+          0x${byte.toString(16).padStart(2, "0").toUpperCase()}
+        `;
+        ramContainer.appendChild(cell);
+      });
+    }
+
+    function step() {
+      if (halted) return;
+
+      const opcode = RAM[PC];
+      log(`Fetched Opcode 0x${opcode.toString(16).padStart(2, "0").toUpperCase()} at PC: 0x${PC.toString(16).padStart(2, "0")}`);
+
+      switch (opcode) {
+        case OP.HLT:
+          halted = true;
+          log("Execution halted.");
+          if (clockInterval) clearInterval(clockInterval);
+          break;
+
+        case OP.LOAD_A:
+          regA = RAM[(PC + 1) % 16];
+          log(`LOAD_A: Set register A to ${regA}`);
+          PC = (PC + 2) % 16;
+          break;
+
+        case OP.LOAD_B:
+          regB = RAM[(PC + 1) % 16];
+          log(`LOAD_B: Set register B to ${regB}`);
+          PC = (PC + 2) % 16;
+          break;
+
+        case OP.ADD:
+          regA = (regA + regB) & 0xFF; // 8-bit wrap
+          log(`ADD: A is now ${regA}`);
+          PC = (PC + 1) % 16;
+          break;
+
+        case OP.SUB:
+          regA = (regA - regB) & 0xFF;
+          log(`SUB: A is now ${regA}`);
+          PC = (PC + 1) % 16;
+          break;
+
+        case OP.JMP:
+          const target = RAM[(PC + 1) % 16];
+          log(`JMP: Jumped to address 0x${target.toString(16).padStart(2, "0")}`);
+          PC = target % 16;
+          break;
+
+        default:
+          log(`Unknown opcode 0x${opcode.toString(16)}, halting.`);
+          halted = true;
+          if (clockInterval) clearInterval(clockInterval);
+          break;
+      }
+
+      renderUI();
+    }
+
+    document.getElementById("btn-step").onclick = () => {
+      step();
+    };
+
+    document.getElementById("btn-run").onclick = function() {
+      if (clockInterval) {
+        clearInterval(clockInterval);
+        clockInterval = null;
+        this.innerText = "RUN (2 HZ)";
+        renderUI();
+      } else {
+        if (halted) return;
+        this.innerText = "PAUSE";
+        clockInterval = setInterval(step, 500); // 2Hz clock cycle
+        renderUI();
+      }
+    };
+
+    document.getElementById("btn-reset").onclick = () => {
+      if (clockInterval) {
+        clearInterval(clockInterval);
+        clockInterval = null;
+        document.getElementById("btn-run").innerText = "RUN (2 HZ)";
+      }
+      RAM = [...INITIAL_ROM];
+      PC = 0;
+      regA = 0;
+      regB = 0;
+      halted = false;
+      logEl.innerHTML = "";
+      log("CPU Reset.");
+      renderUI();
+    };
+
+    renderUI();
+    log("ASimulatedCPU initialized. Ready.");
+  </script>
+</body>
+</html>

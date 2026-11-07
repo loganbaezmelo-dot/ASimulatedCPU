@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ASimulatedCPU - OS Edition</title>
+  <title>ASimulatedCPU - NanoOS</title>
   <style>
     * {
       box-sizing: border-box;
@@ -51,7 +51,6 @@
       font-weight: bold;
     }
 
-    /* Green phosphor CRT terminal screen */
     .crt-monitor {
       background: #040d08;
       border: 2px solid #00ff9d44;
@@ -166,13 +165,11 @@
 
   <h1>ASimulatedCPU // NanoOS</h1>
 
-  <!-- CRT Screen (Output Device) -->
   <div class="panel">
     <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">CRT TTY OUTPUT (MMIO: 0x3E):</div>
     <div class="crt-monitor" id="screen"><span id="terminal-content"></span><span class="cursor"></span></div>
   </div>
 
-  <!-- CPU State & Controls -->
   <div class="panel">
     <div class="status-row">
       <span>PC: <span id="reg-pc" class="val">0x00</span></span>
@@ -202,61 +199,57 @@
   </div>
 
   <script>
-    // Instruction Set Architecture (ISA)
     const OP = {
-      HLT:   0x00, // halt
-      LDA_I: 0x01, // LDA immediate -> regA = imm
-      LDB_I: 0x02, // LDB immediate -> regB = imm
-      LDA_M: 0x03, // LDA memory    -> regA = RAM[addr]
-      STA_M: 0x04, // STA memory    -> RAM[addr] = regA
-      ADD:   0x05, // regA = regA + regB
-      SUB:   0x06, // regA = regA - regB
-      JMP:   0x07, // PC = addr
-      JZ:    0x08, // Jump if Zero -> if (regA === 0) PC = addr
-      INT:   0x09  // Syscall / Kernel Interrupt (vector in regA)
+      HLT:   0x00,
+      LDA_I: 0x01,
+      LDB_I: 0x02,
+      LDA_M: 0x03,
+      STA_M: 0x04,
+      ADD:   0x05,
+      SUB:   0x06,
+      JMP:   0x07,
+      JZ:    0x08,
+      INT:   0x09
     };
 
-    // Special Memory-Mapped I/O addresses in 64-byte address space
-    const MMIO_TTY_CHAR = 0x3E; // 62
-    const MMIO_SYS_FLAG = 0x3F; // 63
+    const MMIO_TTY_CHAR = 0x3E;
+    const MMIO_SYS_FLAG = 0x3F;
 
-    // NanoOS ROM Image
-    // Boots kernel, prints banner, executes program that sums 1..4, prints result
     const BOOT_ROM = [
-      // 0x00: Bootloader entry -> jump to Kernel init at 0x08
+      // 0x00: Bootloader jump to Kernel init at 0x08
       OP.JMP, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 
-      // 0x08: Kernel Banner print loop (Syscall INT 0x01 = print null-terminated string at addr in B)
-      OP.LDA_I, 0x01,       // Syscall 1 = sys_print
-      OP.LDB_I, 0x28,       // Address of string banner (0x28 = 40)
-      OP.INT,               // Trigger kernel interrupt
-      
-      // 0x0D: Launch user shell program (calculates 1+2+3+4, prints "OK")
-      OP.LDA_I, 0x00,       // regA = accumulator (0)
-      OP.LDB_I, 0x01,       // regB = counter (1)
-      // 0x11: loop start
-      OP.ADD,               // regA += regB
-      OP.STA_M, 0x3D,       // save sum to scratchpad memory 0x3D
-      OP.LDA_M, 0x3D,       // reload
-      OP.LDB_I, 0x04,       // compare target
-      // 0x18: Print status dot '.' (ASCII 46) directly through MMIO
-      OP.LDA_I, 0x2E,
-      OP.STA_M, MMIO_TTY_CHAR,
-      OP.LDA_I, 0x02,       // Syscall 2 = sys_flush_char
+      // 0x08: Print banner (INT 0x01 with string pointer in B)
+      OP.LDA_I, 0x01,
+      OP.LDB_I, 0x28,
       OP.INT,
 
-      // 0x1F: Print "DONE" string at address 0x35
+      // 0x0D: Compute loop
+      OP.LDA_I, 0x00,
+      OP.LDB_I, 0x01,
+      OP.ADD,
+      OP.STA_M, 0x3D,
+      OP.LDA_M, 0x3D,
+      OP.LDB_I, 0x04,
+
+      // 0x18: MMIO dot char
+      OP.LDA_I, 0x2E,
+      OP.STA_M, MMIO_TTY_CHAR,
+      OP.LDA_I, 0x02,
+      OP.INT,
+
+      // 0x1F: Print "DONE" / "OK 10"
       OP.LDA_I, 0x01,
       OP.LDB_I, 0x35,
       OP.INT,
 
-      // 0x23: OS Idle / Halt
-      OP.HLT, 0x00, 0x00, 0x00,
+      // 0x23: Infinite idle loop (JMP 0x23) so OS stays running forever
+      OP.JMP, 0x23, 0x00, 0x00, 0x00,
 
-      // 0x28 - 0x34: String data: "OS READY\n" (ASCII)
+      // 0x28 - 0x34: Banner string ("OS READY\n")
       0x4F, 0x53, 0x20, 0x52, 0x45, 0x41, 0x44, 0x59, 0x0A, 0x00, 0x00, 0x00, 0x00,
 
-      // 0x35 - 0x3B: String data: "\nOK 10" (ASCII)
+      // 0x35 - 0x3B: Status string ("\nOK 10")
       0x0A, 0x4F, 0x4B, 0x20, 0x31, 0x30, 0x00,
 
       // 0x3C: Scratchpad
@@ -275,7 +268,7 @@
     let cycles = 0;
     let halted = false;
     let clockInterval = null;
-    let clockSpeedMs = 100; // 10 Hz
+    let clockSpeedMs = 100;
 
     const terminalEl = document.getElementById("terminal-content");
     const ramContainer = document.getElementById("ram-container");
@@ -307,10 +300,9 @@
       }
     }
 
-    // Hardware Interrupt / Kernel handler
     function triggerSyscall(syscallCode) {
       switch(syscallCode) {
-        case 0x01: { // sys_print string from RAM pointer in regB
+        case 0x01: {
           let ptr = regB;
           let str = "";
           while (ptr < 64 && RAM[ptr] !== 0x00) {
@@ -321,7 +313,7 @@
           log(`[KERNEL SYSCALL] Print String from 0x${regB.toString(16)}: "${str.trim()}"`);
           break;
         }
-        case 0x02: { // sys_flush single MMIO character
+        case 0x02: {
           const char = String.fromCharCode(RAM[MMIO_TTY_CHAR]);
           terminalEl.textContent += char;
           log(`[MMIO OUT] Emitted char: '${char}'`);
@@ -430,13 +422,13 @@
         renderUI();
       } else {
         if (halted) return;
-        startClock(100); // 10Hz default
+        startClock(100);
       }
     };
 
     document.getElementById("btn-turbo").onclick = function() {
       if (halted) return;
-      startClock(20); // 50Hz turbo mode
+      startClock(20);
     };
 
     document.getElementById("btn-reset").onclick = () => {
